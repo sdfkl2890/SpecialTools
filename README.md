@@ -2,7 +2,7 @@
 一个比较怪的java工具箱  
 
 目前功能:  
-  1:禁止某个类的某个方法访问当前方法  
+  1:判断当前方法是否被某个类的某个方法所调用  
     boolean isInvoke(String className,String methodName) throws Exception  
   2:判断某个类的某个方法里面是否调用了一个指定方法  
     boolean containsMethod(Class<?> cl,String methodName,String methodDesc,String methodName2,String methodDesc2) throws Exception  
