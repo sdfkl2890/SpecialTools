@@ -1,5 +1,5 @@
 # SpecialTools
-一个比较怪的java8工具箱  
+一个比较怪的java8工具箱,依赖Gson,ASM5,Nashorn  
 
 目前功能:  
   1:判断当前方法是否被某个类的某个方法所调用  
