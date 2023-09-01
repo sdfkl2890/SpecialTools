@@ -23,26 +23,29 @@ import java.util.Map;
 
 public class Utils {
     static ScriptEngine scriptEngine;
-    static InvocationHandler invocationHandler;
+    static InvocationHandler proxyHandler;
+
 
     static {
         scriptEngine = new ScriptEngineManager().getEngineByName("nashorn");
         try {
-            invocationHandler = (InvocationHandler) scriptEngine.eval("var InvocationHandler = java.lang.reflect.InvocationHandler;\n" +
+            InvocationHandler[] handlers = (InvocationHandler[]) scriptEngine.eval("var InvocationHandler = java.lang.reflect.InvocationHandler;\n" +
                     "var Utils = Java.type(\"bang.Utils\");\n" +
-                    "var InvocationHandler3 = Java.extend(InvocationHandler,{\n" +
+                    "var ProxyHandler = Java.extend(InvocationHandler,{\n" +
                     "\tinvoke: function(invocation,method,args){\n" +
                     "\t\tvar target = invocation.getTarget();\n" +
                     "\t\tvar clToExtend = target.getClass().static;\n" +
                     "\t\tvar object = {};\n" +
                     "\t\tobject[method.getName()] = function(){\n" +
-                    "\t\t\tinvocation.invoke(target,method,Java.to(arguments, \"java.lang.Object[]\"));\n" +
+                    "\t\t\tinvocation.invoke(null,method,Java.to(arguments, \"java.lang.Object[]\"));\n" +
                     "\t\t};\n" +
                     "\t\tvar extendedClass = Java.extend(clToExtend,object);\n" +
                     "\t\treturn Utils.convertFatherToSon(extendedClass.class,target,null,null);\n" +
                     "\t}\n" +
                     "});\n" +
-                    "new InvocationHandler3();");
+                    "\n" +
+                    "Java.to([new ProxyHandler()],\"java.lang.reflect.InvocationHandler[]\");");
+            proxyHandler = handlers[0];
         } catch (ScriptException e) {
             throw new RuntimeException(e);
         }
@@ -71,20 +74,10 @@ public class Utils {
         ClassReader cr = new ClassReader(cl.getName());
         ClassNode cn = new ClassNode();
         cr.accept(cn, 0);
-        final MyMethodAdapter[] methodVisitor = new MyMethodAdapter[1];
-        ClassVisitor cv = new ClassVisitor(Opcodes.ASM5) {
-            @Override
-            public MethodVisitor visitMethod(int access, String name, String desc, String signature, String[] exceptions) {
-                MethodVisitor mv = super.visitMethod(access, name, desc, signature, exceptions);;
-                if(name.equals(methodName) && desc.equals(methodDesc)){
-                    return (methodVisitor[0] = new MyMethodAdapter(Opcodes.ASM5,mv,owner,methodName2,methodDesc2));
-                }
-                return mv;
-            }
-        };
+        MyClassVisitor cv = new MyClassVisitor(Opcodes.ASM5,methodName,methodDesc,owner,methodName2,methodDesc2);
         cr.accept(cv,ClassReader.SKIP_DEBUG);
-        if(methodVisitor[0] != null){
-            return methodVisitor[0].contains;
+        if(cv.adapter != null){
+            return cv.adapter.contains;
         }
         return false;
     }
@@ -92,16 +85,16 @@ public class Utils {
     static MyExclusionStrategy strategy = new MyExclusionStrategy();
     static Gson gson = new GsonBuilder().setExclusionStrategies(strategy).create();
 
-    public static <T,E extends T> E convertFatherToSon(Class<E> sonClass, T instance, List<String> fieldsToIgnore, Map<String,Object> fieldsToPut){//被newProxy调用
+    public static <T,E extends T> E convertFatherToSon(Class<E> sonClass, T instance, List<String> fieldsToIgnore, Map<String,Object> fieldsToPut){//被proxyHandler调用
 
 
         strategy.fieldsToIgnore = fieldsToIgnore == null ? (fieldsToIgnore = new ArrayList<>()) : fieldsToIgnore;
         fieldsToPut = fieldsToPut == null ? new HashMap<>() : fieldsToPut;
 
-        String json = gson.toJson(instance);
 
         ArrayList<String> cannotPut = new ArrayList<>();
-        JsonObject jsonObject = new JsonParser().parse(json).getAsJsonObject();
+
+        JsonObject jsonObject = gson.toJsonTree(instance).getAsJsonObject();
         for (String key : fieldsToPut.keySet()) {
             Object value = fieldsToPut.get(key);
             if (isWrapClass(value.getClass())) {
@@ -144,16 +137,22 @@ public class Utils {
         return son;
     }
 
+    public static <T> T createObject(Class<T> cl,List<String> fieldsToIgnore,Map<String,Object> fieldsToPut){
+        JsonObject jsonObject = new JsonObject();
+        return convertFatherToSon(cl,jsonObject,fieldsToIgnore,fieldsToPut);
+    }
+
     public static <T extends InvocationHandler2,E> E newProxy(T invocation,E target,Method method) throws Throwable{
         if(scriptEngine == null){
             throw new Exception("nashorn script engine not found");
         }
-        if (invocationHandler != null){
+        if (proxyHandler != null){
             invocation.target = target;
-            return (E)invocationHandler.invoke(invocation,method,null);
+            return (E) proxyHandler.invoke(invocation,method,null);
         }
         return null;
     }
+
 
     private static boolean isWrapClass(Class<?> clz) {
         try {
@@ -188,32 +187,38 @@ public class Utils {
         }
     }
 
+    protected static class MyClassVisitor extends ClassVisitor{
+        public MyMethodAdapter adapter;
 
-    public static void main(String[] args) throws Throwable{
-        System.out.println("----------");
-        isInvokedByMain(); //true
-        System.out.println("----------");
-        Person person = new Person();
-        person.age = 1;
-        Person person1 = newProxy(new InvocationHandler2(true){
-            public void before(Object[] args){
-                System.out.println(args[0] + "1");//wasd1
-                System.out.println("abcd");
+        private final String methodName;
+        private final String methodDesc;
+        private final String owner;
+        private final String methodName2;
+        private final String methodDesc2;
+
+        public MyClassVisitor(int i, String methodName, String methodDesc, String owner, String methodName2, String methodDesc2) {
+            super(i);
+            this.methodName = methodName;
+            this.methodDesc = methodDesc;
+            this.owner = owner;
+            this.methodName2 = methodName2;
+            this.methodDesc2 = methodDesc2;
+        }
+
+        @Override
+        public MethodVisitor visitMethod(int access, String name, String desc, String signature, String[] exceptions) {
+            MethodVisitor mv = super.visitMethod(access, name, desc, signature, exceptions);;
+            if(name.equals(methodName) && desc.equals(methodDesc)){
+                return (adapter = new MyMethodAdapter(Opcodes.ASM5,mv,owner,methodName2,methodDesc2));
             }
-        },person,Person.class.getMethod("printName",String.class));
-        person1.printName("wasd");
-        System.out.println("----------");
-        isContainsMethod();//true
-        System.out.println("----------");
+            return mv;
+        }
     }
 
-    private static void isInvokedByMain(){
-        System.out.println("Invoked by bang.Utils.main(args) " + isInvoke("bang.Utils","main"));
-    }
 
-    private static void isContainsMethod() throws Exception {
-        System.out.println("Utils.class Contains Method isInvokedByMain " + containsMethod(Utils.class,"isInvokedByMain","()V","java/io/PrintStream","println","(Ljava/lang/String;)V"));
-    }
+
+
+
 
 
 }
