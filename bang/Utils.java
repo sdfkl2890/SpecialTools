@@ -13,7 +13,6 @@ import org.objectweb.asm.tree.ClassNode;
 import javax.script.ScriptEngine;
 import javax.script.ScriptEngineManager;
 import javax.script.ScriptException;
-import java.io.File;
 import java.lang.reflect.Field;
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.Method;
@@ -50,18 +49,25 @@ public class Utils {
     }
 
 
-    public static boolean isInvoke(String className,String methodName) throws Exception {
+    public static boolean isInvoke(String className,String methodName) {
         Exception exception = new Exception(className + "'s " +  methodName + " cannot invoke this method");
         StackTraceElement[] stackTraceElement = exception.getStackTrace();
         for (StackTraceElement stack : stackTraceElement){
-            if (stack.getClassName().equals(className) && stack.getMethodName().equals(methodName)) {
-                throw exception;
+            if (stack.getClassName().equals(className)) {
+                if (methodName.equals("*")) {//表示类的所有方法
+                    return true;
+                } else {
+                    if (stack.getMethodName().equals(methodName)) {
+                        return true;
+                    }
+                }
             }
         }
+
         return false;
     }
 
-    public static boolean containsMethod(Class<?> cl,String methodName,String methodDesc,String methodName2,String methodDesc2) throws Exception{
+    public static boolean containsMethod(Class<?> cl,String methodName,String methodDesc,String owner,String methodName2,String methodDesc2) throws Exception{
         ClassReader cr = new ClassReader(cl.getName());
         ClassNode cn = new ClassNode();
         cr.accept(cn, 0);
@@ -71,7 +77,7 @@ public class Utils {
             public MethodVisitor visitMethod(int access, String name, String desc, String signature, String[] exceptions) {
                 MethodVisitor mv = super.visitMethod(access, name, desc, signature, exceptions);;
                 if(name.equals(methodName) && desc.equals(methodDesc)){
-                    return (methodVisitor[0] = new MyMethodAdapter(Opcodes.ASM5,mv,methodName2,methodDesc2));
+                    return (methodVisitor[0] = new MyMethodAdapter(Opcodes.ASM5,mv,owner,methodName2,methodDesc2));
                 }
                 return mv;
             }
@@ -86,7 +92,7 @@ public class Utils {
     static MyExclusionStrategy strategy = new MyExclusionStrategy();
     static Gson gson = new GsonBuilder().setExclusionStrategies(strategy).create();
 
-    public static <T,E extends T> E convertFatherToSon(Class<E> sonClass, T instance, List<String> fieldsToIgnore, Map<String,Object> fieldsToPut){
+    public static <T,E extends T> E convertFatherToSon(Class<E> sonClass, T instance, List<String> fieldsToIgnore, Map<String,Object> fieldsToPut){//被newProxy调用
 
 
         strategy.fieldsToIgnore = fieldsToIgnore == null ? (fieldsToIgnore = new ArrayList<>()) : fieldsToIgnore;
@@ -149,7 +155,7 @@ public class Utils {
         return null;
     }
 
-    public static boolean isWrapClass(Class<?> clz) {
+    private static boolean isWrapClass(Class<?> clz) {
         try {
             return ((Class<?>) clz.getField("TYPE").get(null)).isPrimitive();
         } catch (Exception e) {
@@ -159,11 +165,14 @@ public class Utils {
 
     protected static class MyMethodAdapter extends MethodVisitor{
         public boolean contains;
+
+        String owner;
         String methodName;
         String methodDesc;
 
-        protected MyMethodAdapter(int api, MethodVisitor methodVisitor,String methodName,String methodDesc) {
+        protected MyMethodAdapter(int api, MethodVisitor methodVisitor,String owner,String methodName,String methodDesc) {
             super(api, methodVisitor);
+            this.owner = owner;
             this.methodName = methodName;
             this.methodDesc = methodDesc;
         }
@@ -171,7 +180,7 @@ public class Utils {
         @Override
         public void visitMethodInsn(int opcode, String owner, String name,
                                     String desc, boolean itf) {
-            if(name.equals(methodName) && desc.equals(methodDesc)){
+            if(owner.equals(this.owner) && name.equals(methodName) && desc.equals(methodDesc)){
                 this.contains = true;
 
             }
@@ -181,15 +190,29 @@ public class Utils {
 
 
     public static void main(String[] args) throws Throwable{
+        System.out.println("----------");
+        isInvokedByMain(); //true
+        System.out.println("----------");
         Person person = new Person();
         person.age = 1;
         Person person1 = newProxy(new InvocationHandler2(true){
             public void before(Object[] args){
-                System.out.println(args[0] + "1");
+                System.out.println(args[0] + "1");//wasd1
                 System.out.println("abcd");
             }
         },person,Person.class.getMethod("printName",String.class));
         person1.printName("wasd");
+        System.out.println("----------");
+        isContainsMethod();//true
+        System.out.println("----------");
+    }
+
+    private static void isInvokedByMain(){
+        System.out.println("Invoked by bang.Utils.main(args) " + isInvoke("bang.Utils","main"));
+    }
+
+    private static void isContainsMethod() throws Exception {
+        System.out.println("Utils.class Contains Method isInvokedByMain " + containsMethod(Utils.class,"isInvokedByMain","()V","java/io/PrintStream","println","(Ljava/lang/String;)V"));
     }
 
 
