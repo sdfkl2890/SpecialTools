@@ -3,7 +3,6 @@ package bang;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.JsonObject;
-import com.google.gson.JsonParser;
 import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.ClassVisitor;
 import org.objectweb.asm.MethodVisitor;
@@ -52,6 +51,13 @@ public class Utils {
     }
 
 
+    /*
+    * 判断当前方法是否被某类的某方法调用
+    * Args:
+    *   className: Class,某类名称,如java.lang.String
+    *   methodName: String,某方法名称
+    * Returns boolean
+    */
     public static boolean isInvoke(String className,String methodName) {
         Exception exception = new Exception(className + "'s " +  methodName + " cannot invoke this method");
         StackTraceElement[] stackTraceElement = exception.getStackTrace();
@@ -70,6 +76,17 @@ public class Utils {
         return false;
     }
 
+    /*
+    * 判断某类某方法体中是否调用了某某方法
+    * Args:
+    *   cl: Class,某类
+    *   methodName: String,某方法名称
+    *   methodDesc: String,某方法描述符(参数类型)
+    *   owner: String,调用某某方法的类签名,如java/lang/String
+    *   methodName2: String,某某方法名称
+    *   methodDesc2: String,某某方法描述符
+    * Returns boolean
+    */
     public static boolean containsMethod(Class<?> cl,String methodName,String methodDesc,String owner,String methodName2,String methodDesc2) throws Exception{
         ClassReader cr = new ClassReader(cl.getName());
         ClassNode cn = new ClassNode();
@@ -82,12 +99,20 @@ public class Utils {
         return false;
     }
 
+    //Gson序列化及反序列化策略
     static MyExclusionStrategy strategy = new MyExclusionStrategy();
     static Gson gson = new GsonBuilder().setExclusionStrategies(strategy).create();
 
+    /*
+    * 将父类转换成子类
+    * Args:
+    *   sonClass: Class,子类
+    *   instance: Object,父类对象
+    *   fieldToIgnore: List<String>,序列化时忽略的属性,可为null
+    *   fieldsToPut: Map<String,Object>,赋值给子类对象的属性,可为null
+    * Returns 子类对象
+    */
     public static <T,E extends T> E convertFatherToSon(Class<E> sonClass, T instance, List<String> fieldsToIgnore, Map<String,Object> fieldsToPut){//被proxyHandler调用
-
-
         strategy.fieldsToIgnore = fieldsToIgnore == null ? (fieldsToIgnore = new ArrayList<>()) : fieldsToIgnore;
         fieldsToPut = fieldsToPut == null ? new HashMap<>() : fieldsToPut;
 
@@ -137,15 +162,28 @@ public class Utils {
         return son;
     }
 
-    public static <T> T createObject(Class<T> cl,List<String> fieldsToIgnore,Map<String,Object> fieldsToPut){
-        JsonObject jsonObject = new JsonObject();
-        return convertFatherToSon(cl,jsonObject,fieldsToIgnore,fieldsToPut);
+
+    /*
+    * 通过属性名和属性对象直接创建对象，而不初始化
+    * Args:
+    *   cl: Class,对象类
+    *   fieldsToPut: Map<String,Object>,存储属性名和属性对象的Map
+    * Returns 对象
+    */
+    public static <T> T createObject(Class<T> cl,Map<String,Object> fieldsToPut){
+        return convertFatherToSon(cl,new JsonObject(),null,fieldsToPut);
     }
 
+
+    /*
+    * 动态代理类对象
+    * Args:
+    *   invocation: InvocationHandler2,代理类
+    *   target: Object,代理对象
+    *   method: Method,代理方法
+    * Returns 代理对象的子类的对象
+    */
     public static <T extends InvocationHandler2,E> E newProxy(T invocation,E target,Method method) throws Throwable{
-        if(scriptEngine == null){
-            throw new Exception("nashorn script engine not found");
-        }
         if (proxyHandler != null){
             invocation.target = target;
             return (E) proxyHandler.invoke(invocation,method,null);
@@ -214,11 +252,5 @@ public class Utils {
             return mv;
         }
     }
-
-
-
-
-
-
 
 }
