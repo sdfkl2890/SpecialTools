@@ -3,10 +3,8 @@ package bang;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.JsonObject;
-import org.objectweb.asm.ClassReader;
-import org.objectweb.asm.ClassVisitor;
-import org.objectweb.asm.MethodVisitor;
-import org.objectweb.asm.Opcodes;
+import org.objectweb.asm.*;
+import org.objectweb.asm.commons.AdviceAdapter;
 import org.objectweb.asm.tree.ClassNode;
 
 import javax.script.ScriptEngine;
@@ -21,6 +19,7 @@ import java.util.List;
 import java.util.Map;
 
 public class Utils {
+    private static HashMap<Method,InvocationHandler2> handlers = new HashMap<>();
     static ScriptEngine scriptEngine;
     static InvocationHandler proxyHandler;
 
@@ -52,16 +51,16 @@ public class Utils {
 
 
     /*
-    * 判断当前方法是否被某类的某方法调用
-    * Args:
-    *   className: Class,某类名称,如java.lang.String
-    *   methodName: String,某方法名称
-    * Returns boolean
-    */
-    public static boolean isInvoke(String className,String methodName) {
-        Exception exception = new Exception(className + "'s " +  methodName + " cannot invoke this method");
+     * 判断当前方法是否被某类的某方法调用
+     * Args:
+     *   className: Class,某类名称,如java.lang.String
+     *   methodName: String,某方法名称
+     * Returns boolean
+     */
+    public static boolean isInvoke(String className, String methodName) {
+        Exception exception = new Exception(className + "'s " + methodName + " cannot invoke this method");
         StackTraceElement[] stackTraceElement = exception.getStackTrace();
-        for (StackTraceElement stack : stackTraceElement){
+        for (StackTraceElement stack : stackTraceElement) {
             if (stack.getClassName().equals(className)) {
                 if (methodName.equals("*")) {//表示类的所有方法
                     return true;
@@ -76,24 +75,26 @@ public class Utils {
         return false;
     }
 
-    /*
-    * 判断某类某方法体中是否调用了某某方法
-    * Args:
-    *   cl: Class,某类
-    *   methodName: String,某方法名称
-    *   methodDesc: String,某方法描述符(参数类型)
-    *   owner: String,调用某某方法的类签名,如java/lang/String
-    *   methodName2: String,某某方法名称
-    *   methodDesc2: String,某某方法描述符
-    * Returns boolean
-    */
-    public static boolean containsMethod(Class<?> cl,String methodName,String methodDesc,String owner,String methodName2,String methodDesc2) throws Exception{
+
+    /**
+     * 判断某类某方法体中是否调用了某某方法
+     *
+     * @param cl:          Class,某类
+     * @param methodName:  String,某方法名称
+     * @param methodDesc:  String,某方法描述符(参数类型)
+     * @param owner:       String,调用某某方法的类签名,如java/lang/String
+     * @param methodName2: String,某某方法名称
+     * @param methodDesc2: String,某某方法描述符
+     * @return boolean
+     * @throws Exception
+     */
+    public static boolean containsMethod(Class<?> cl, String methodName, String methodDesc, String owner, String methodName2, String methodDesc2) throws Exception {
         ClassReader cr = new ClassReader(cl.getName());
         ClassNode cn = new ClassNode();
         cr.accept(cn, 0);
-        MyClassVisitor cv = new MyClassVisitor(Opcodes.ASM5,methodName,methodDesc,owner,methodName2,methodDesc2);
-        cr.accept(cv,ClassReader.SKIP_DEBUG);
-        if(cv.adapter != null){
+        MyClassVisitor cv = new MyClassVisitor(Opcodes.ASM5, methodName, methodDesc, owner, methodName2, methodDesc2);
+        cr.accept(cv, ClassReader.SKIP_DEBUG);
+        if (cv.adapter != null) {
             return cv.adapter.contains;
         }
         return false;
@@ -103,16 +104,17 @@ public class Utils {
     static MyExclusionStrategy strategy = new MyExclusionStrategy();
     static Gson gson = new GsonBuilder().setExclusionStrategies(strategy).create();
 
-    /*
-    * 将父类转换成子类
-    * Args:
-    *   sonClass: Class,子类
-    *   instance: Object,父类对象
-    *   fieldToIgnore: List<String>,序列化时忽略的属性,可为null
-    *   fieldsToPut: Map<String,Object>,赋值给子类对象的属性,可为null
-    * Returns 子类对象
-    */
-    public static <T,E extends T> E convertFatherToSon(Class<E> sonClass, T instance, List<String> fieldsToIgnore, Map<String,Object> fieldsToPut){//被proxyHandler调用
+
+    /**
+     * 将父类对象转换其子类对象
+     *
+     * @param sonClass:       Class,子类
+     * @param instance:       Object,父类对象
+     * @param fieldsToIgnore: List<String>,序列化时忽略的属性,可为null
+     * @param fieldsToPut:    Map<String,Object>,赋值给子类对象的属性,可为null
+     * @return 子类对象
+     */
+    public static <T, E extends T> E convertFatherToSon(Class<E> sonClass, T instance, List<String> fieldsToIgnore, Map<String, Object> fieldsToPut) {//被proxyHandler调用
         strategy.fieldsToIgnore = fieldsToIgnore == null ? (fieldsToIgnore = new ArrayList<>()) : fieldsToIgnore;
         fieldsToPut = fieldsToPut == null ? new HashMap<>() : fieldsToPut;
 
@@ -133,19 +135,19 @@ public class Utils {
         E son = null;
         try {
             son = gson.fromJson(jsonObject, sonClass);
-        }catch (IllegalArgumentException e){
-        if (e.getMessage().contains(" declares multiple JSON fields named ")){
-            String fieldName = e.getMessage().split(" declares multiple JSON fields named ")[1];
-            if(!fieldsToIgnore.contains(fieldName)){
-                fieldsToIgnore.add(fieldName);
+        } catch (IllegalArgumentException e) {
+            if (e.getMessage().contains(" declares multiple JSON fields named ")) {
+                String fieldName = e.getMessage().split(" declares multiple JSON fields named ")[1];
+                if (!fieldsToIgnore.contains(fieldName)) {
+                    fieldsToIgnore.add(fieldName);
+                }
+                if (!fieldsToPut.containsKey(fieldName)) {
+                    fieldsToPut.put(fieldName, "FatherAndSonField9527");
+                }
+                return convertFatherToSon(sonClass, instance, fieldsToIgnore, fieldsToPut);
             }
-            if(!fieldsToPut.containsKey(fieldName)){
-                fieldsToPut.put(fieldName,"FatherAndSonField9527");
-            }
-            return convertFatherToSon(sonClass,instance,fieldsToIgnore,fieldsToPut);
         }
-        }
-        if(son != null) {
+        if (son != null) {
             for (String key : cannotPut) {
                 try {
                     Field field = sonClass.getDeclaredField(key);
@@ -162,33 +164,192 @@ public class Utils {
         return son;
     }
 
-
-    /*
-    * 通过属性名和属性对象直接创建对象，而不初始化
-    * Args:
-    *   cl: Class,对象类
-    *   fieldsToPut: Map<String,Object>,存储属性名和属性对象的Map
-    * Returns 对象
-    */
-    public static <T> T createObject(Class<T> cl,Map<String,Object> fieldsToPut){
-        return convertFatherToSon(cl,new JsonObject(),null,fieldsToPut);
+    /**
+     * 根据一个Map创建对象，不经过初始化
+     *
+     * @param cl:          Class,对象类
+     * @param fieldsToPut: Map<String,Object>,存储属性名和属性对象的Map
+     * @return 对象
+     */
+    public static <T> T createObject(Class<T> cl, Map<String, Object> fieldsToPut) {
+        return convertFatherToSon(cl, new JsonObject(), null, fieldsToPut);
     }
 
 
-    /*
-    * 动态代理类对象
-    * Args:
-    *   invocation: InvocationHandler2,代理类
-    *   target: Object,代理对象
-    *   method: Method,代理方法
-    * Returns 代理对象的子类的对象
-    */
-    public static <T extends InvocationHandler2,E> E newProxy(T invocation,E target,Method method) throws Throwable{
-        if (proxyHandler != null){
+    /**
+     * 动态代理类对象
+     *
+     * @param invocation: InvocationHandler2,代理类
+     * @param target:     Object,代理对象
+     * @param method:     Method,代理方法
+     * @param <T>         继承InvocationHandler2
+     * @param <E>         子类对象
+     * @return 子类对象
+     */
+    public static <T extends InvocationHandler2, E> E newProxy(T invocation, E target, Method method) throws Throwable {
+        if (proxyHandler != null) {
             invocation.target = target;
-            return (E) proxyHandler.invoke(invocation,method,null);
+            return (E) proxyHandler.invoke(invocation, method, null);
         }
         return null;
+    }
+
+    //https://stackoverflow.com/questions/32148846/
+    public static String getDescriptorForClass(final Class c) {
+        if (c.isPrimitive()) {
+            if (c == byte.class)
+                return "B";
+            if (c == char.class)
+                return "C";
+            if (c == double.class)
+                return "D";
+            if (c == float.class)
+                return "F";
+            if (c == int.class)
+                return "I";
+            if (c == long.class)
+                return "J";
+            if (c == short.class)
+                return "S";
+            if (c == boolean.class)
+                return "Z";
+            if (c == void.class)
+                return "V";
+            throw new RuntimeException("Unrecognized primitive " + c);
+        }
+        if (c.isArray()) return c.getName().replace('.', '/');
+        return ('L' + c.getName() + ';').replace('.', '/');
+    }
+
+    //https://stackoverflow.com/questions/32148846/
+    public static String getMethodDescriptor(Method m) {
+        StringBuilder s = new StringBuilder("(");
+        for (final Class<?> c : m.getParameterTypes())
+            s.append(getDescriptorForClass(c));
+        s.append(')');
+        return s.append(getDescriptorForClass(m.getReturnType())).toString();
+    }
+
+    //未实现
+    public static void StubMethod(Method method, InvocationHandler2 invocation) throws Exception {
+        handlers.put(method,invocation);
+        Class<?> cl = method.getDeclaringClass();
+        ClassReader cr = new ClassReader(cl.getName());
+        ClassNode cn = new ClassNode();
+        cr.accept(cn, 0);
+        ClassWriter cw = new ClassWriter(cr, 0);
+        ClassVisitor cv = new ClassVisitor(Opcodes.ASM5, cw) {
+            @Override
+            public MethodVisitor visitMethod(int access, String name, String desc, String signature, String[] exceptions) {
+                MethodVisitor mv = super.visitMethod(access, name, desc, signature, exceptions);
+                if (name.equals(method.getName()) && desc.equals(getMethodDescriptor(method))) {
+                    return new AdviceAdapter(api, mv, access, name, signature) {
+                        @Override
+                        protected void onMethodEnter() {
+                            super.onMethodEnter();
+                            mv.visitInsn(Opcodes.ICONST_0);
+                            mv.visitLdcInsn(name);
+                            mv.visitLdcInsn(desc);
+                            visitParams(mv,method);
+                            mv.visitMethodInsn(Opcodes.INVOKESTATIC,"bang/Utils","invokeMethod","(Ljava/lang/String;Ljava/lang/String;[Ljava/lang/Object;)V",false);
+                        }
+                    };
+                }
+                return mv;
+            }
+        };
+        cr.accept(cv, ClassReader.EXPAND_FRAMES);
+
+    }
+
+    //未实现
+    public static void invokeMethod(int i,String name,String desc,Object[] args) throws Throwable {
+        for (Method method : handlers.keySet()){
+            if(name.equals(method.getName()) && desc.equals(getMethodDescriptor(method))){
+                InvocationHandler2 invocationHandler = handlers.get(method);
+                switch (i){
+                    case 0:
+                        invocationHandler.before(args);
+                        break;
+                    case 1:
+                        invocationHandler.after(args);
+                        break;
+                    case 2:
+                        invocationHandler.invoke(null,method,args);
+                        break;
+                }
+            }
+        }
+    }
+
+    public static void visitParams(MethodVisitor mv,Method method){
+        mv.visitIntInsn(Opcodes.BIPUSH,method.getParameterTypes().length);
+        mv.visitTypeInsn(Opcodes.ANEWARRAY,"java/lang/Object");
+        mv.visitInsn(Opcodes.DUP);
+        mv.visitInsn(Opcodes.ICONST_0);
+        mv.visitVarInsn(Opcodes.ALOAD,0);
+        Class<?>[] classes = method.getParameterTypes();
+        for (int i = 0; i < classes.length;) {
+            Class<?> c = classes[i];
+            if(i < 5){
+                switch (i){
+                    case 0:
+                        mv.visitInsn(Opcodes.ICONST_1);
+                        break;
+                    case 1:
+                        mv.visitInsn(Opcodes.ICONST_2);
+                        break;
+                    case 2:
+                        mv.visitInsn(Opcodes.ICONST_3);
+                        break;
+                    case 3:
+                        mv.visitInsn(Opcodes.ICONST_4);
+                        break;
+                    case 4:
+                        mv.visitInsn(Opcodes.ICONST_5);
+                        break;
+                }
+            }else{
+                mv.visitIntInsn(Opcodes.BIPUSH,i + 1);
+            }
+            if (c.isPrimitive()) {
+                if (c == byte.class || c == char.class || c == int.class || c == short.class || c == boolean.class) {
+                    mv.visitVarInsn(Opcodes.ILOAD, ++i);
+                    if(c == byte.class) {
+                        mv.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/Byte", "valueOf", "(B)Ljava/lang/Byte;", false);
+                    }else if(c == char.class){
+                        mv.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/Character", "valueOf", "(C)Ljava/lang/Character;", false);
+                    }else if(c == int.class){
+                        mv.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/Integer", "valueOf", "(I)Ljava/lang/Integer;", false);
+                    }else if(c == short.class){
+                        mv.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/Short", "valueOf", "(S)Ljava/lang/Short;", false);
+                    }else {
+                        mv.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/Boolean", "valueOf", "(Z)Ljava/lang/Boolean;", false);
+                    }
+                }
+                else if (c == double.class) {
+                    mv.visitVarInsn(Opcodes.DLOAD, ++i);
+                    mv.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/Double", "valueOf", "(D)Ljava/lang/Double;", false);
+                }
+                else if (c == float.class) {
+                    mv.visitVarInsn(Opcodes.FLOAD, ++i);
+                    mv.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/Float", "valueOf", "(F)Ljava/lang/Float;", false);
+                }
+                else if (c == long.class) {
+                    mv.visitVarInsn(Opcodes.LLOAD, ++i);
+                    mv.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/Long", "valueOf", "(J)Ljava/lang/Long;", false);
+                }
+            } else {
+                mv.visitVarInsn(Opcodes.ALOAD, ++i);
+            }
+            mv.visitInsn(Opcodes.AASTORE);
+            if(i != classes.length) {
+                mv.visitInsn(Opcodes.DUP);
+            }
+        }
+        if(classes.length == 0){
+            mv.visitInsn(Opcodes.AASTORE);
+        }
     }
 
 
@@ -200,14 +361,14 @@ public class Utils {
         }
     }
 
-    protected static class MyMethodAdapter extends MethodVisitor{
+    protected static class MyMethodAdapter extends MethodVisitor {
         public boolean contains;
 
         String owner;
         String methodName;
         String methodDesc;
 
-        protected MyMethodAdapter(int api, MethodVisitor methodVisitor,String owner,String methodName,String methodDesc) {
+        protected MyMethodAdapter(int api, MethodVisitor methodVisitor, String owner, String methodName, String methodDesc) {
             super(api, methodVisitor);
             this.owner = owner;
             this.methodName = methodName;
@@ -217,7 +378,7 @@ public class Utils {
         @Override
         public void visitMethodInsn(int opcode, String owner, String name,
                                     String desc, boolean itf) {
-            if(owner.equals(this.owner) && name.equals(methodName) && desc.equals(methodDesc)){
+            if (owner.equals(this.owner) && name.equals(methodName) && desc.equals(methodDesc)) {
                 this.contains = true;
 
             }
@@ -225,7 +386,7 @@ public class Utils {
         }
     }
 
-    protected static class MyClassVisitor extends ClassVisitor{
+    protected static class MyClassVisitor extends ClassVisitor {
         public MyMethodAdapter adapter;
 
         private final String methodName;
@@ -245,9 +406,10 @@ public class Utils {
 
         @Override
         public MethodVisitor visitMethod(int access, String name, String desc, String signature, String[] exceptions) {
-            MethodVisitor mv = super.visitMethod(access, name, desc, signature, exceptions);;
-            if(name.equals(methodName) && desc.equals(methodDesc)){
-                return (adapter = new MyMethodAdapter(Opcodes.ASM5,mv,owner,methodName2,methodDesc2));
+            MethodVisitor mv = super.visitMethod(access, name, desc, signature, exceptions);
+            ;
+            if (name.equals(methodName) && desc.equals(methodDesc)) {
+                return (adapter = new MyMethodAdapter(api, mv, owner, methodName2, methodDesc2));
             }
             return mv;
         }
