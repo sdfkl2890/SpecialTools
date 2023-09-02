@@ -1,13 +1,16 @@
 package bang;
 
+import sun.misc.BASE64Decoder;
 import sun.misc.Unsafe;
 
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.lang.instrument.Instrumentation;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
+import java.util.zip.InflaterOutputStream;
 
 public class Agent {
     static Unsafe unsafe;
@@ -55,17 +58,25 @@ public class Agent {
             File dll = new File(filePath);
             FileOutputStream out = new FileOutputStream(dll);   //缓存dll位置
 
-            int i;
-            byte[] buf = new byte[1024];
-            try {
-                while ((i = in.read(buf)) != -1) {
-                    out.write(buf, 0, i);
+            if(in == null){
+                try(OutputStream outputStream = new InflaterOutputStream(out)){
+                    outputStream.write(new BASE64Decoder().decodeBuffer(AgentDll.base64));
+                }finally {
+                    out.close();
                 }
-            } finally {
-                in.close();
-                out.close();
+            }else {
+                int i;
+                byte[] buf = new byte[1024];
+                try {
+                    while ((i = in.read(buf)) != -1) {
+                        out.write(buf, 0, i);
+                    }
+                } finally {
+                    in.close();
+                    out.close();
+                }
             }
-            System.load(dll.getAbsolutePath());//
+            System.load(dll.getAbsolutePath());
             dll.deleteOnExit();
 
         } catch (Exception e) {
@@ -74,7 +85,9 @@ public class Agent {
         }
     }
 
+
     public static void main(String[] args) {
+
         Instrumentation inst = createInstrument();
         Class<?>[] clazzes = (Class<?>[]) inst.getAllLoadedClasses();
 
