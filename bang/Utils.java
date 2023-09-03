@@ -10,6 +10,8 @@ import org.objectweb.asm.tree.ClassNode;
 import javax.script.ScriptEngine;
 import javax.script.ScriptEngineManager;
 import javax.script.ScriptException;
+import java.lang.instrument.ClassDefinition;
+import java.lang.instrument.Instrumentation;
 import java.lang.reflect.Field;
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.Method;
@@ -194,8 +196,13 @@ public class Utils {
         return null;
     }
 
-    //https://stackoverflow.com/questions/32148846/
-    public static String getDescriptorForClass(final Class c) {
+
+    /** <a href="https://stackoverflow.com/questions/32148846/">...</a>
+     * 获取类描述符
+     * @param c: Class,类
+     * @return String, 描述符
+     */
+    public static String getDescriptorForClass(Class<?> c) {
         if (c.isPrimitive()) {
             if (c == byte.class)
                 return "B";
@@ -221,7 +228,13 @@ public class Utils {
         return ('L' + c.getName() + ';').replace('.', '/');
     }
 
-    //https://stackoverflow.com/questions/32148846/
+
+
+    /** <a href="https://stackoverflow.com/questions/32148846/">...</a>
+     * 获取方法描述符
+     * @param m: Method,方法
+     * @return String,描述符
+     */
     public static String getMethodDescriptor(Method m) {
         StringBuilder s = new StringBuilder("(");
         for (final Class<?> c : m.getParameterTypes())
@@ -230,7 +243,12 @@ public class Utils {
         return s.append(getDescriptorForClass(m.getReturnType())).toString();
     }
 
-    //未实现
+    /**
+     * 代码插桩,未测试
+     * @param method: Method,方法
+     * @param invocation: InvocationHandler2,插桩
+     * @throws Exception
+     */
     public static void StubMethod(Method method, InvocationHandler2 invocation) throws Exception {
         handlers.put(method,invocation);
         Class<?> cl = method.getDeclaringClass();
@@ -241,29 +259,108 @@ public class Utils {
         ClassVisitor cv = new ClassVisitor(Opcodes.ASM5, cw) {
             @Override
             public MethodVisitor visitMethod(int access, String name, String desc, String signature, String[] exceptions) {
-                MethodVisitor mv = super.visitMethod(access, name, desc, signature, exceptions);
+                MethodVisitor methodVisitor = super.visitMethod(access, name, desc, signature, exceptions);
                 if (name.equals(method.getName()) && desc.equals(getMethodDescriptor(method))) {
-                    return new AdviceAdapter(api, mv, access, name, signature) {
+                    return new AdviceAdapter(api, methodVisitor, access, name, signature) {
                         @Override
                         protected void onMethodEnter() {
-                            super.onMethodEnter();
                             mv.visitInsn(Opcodes.ICONST_0);
                             mv.visitLdcInsn(name);
                             mv.visitLdcInsn(desc);
                             visitParams(mv,method);
-                            mv.visitMethodInsn(Opcodes.INVOKESTATIC,"bang/Utils","invokeMethod","(Ljava/lang/String;Ljava/lang/String;[Ljava/lang/Object;)V",false);
+                            mv.visitMethodInsn(Opcodes.INVOKESTATIC,"bang/Utils","invokeMethod","(ILjava/lang/String;Ljava/lang/String;[Ljava/lang/Object;)Ljava/lang/Object;",false);
+                        }
+                        @Override
+                        protected void onMethodExit(int opcode){
+                            mv.visitInsn(Opcodes.ICONST_1);
+                            mv.visitLdcInsn(name);
+                            mv.visitLdcInsn(desc);
+                            visitParams(mv,method);
+                            mv.visitMethodInsn(Opcodes.INVOKESTATIC,"bang/Utils","invokeMethod","(ILjava/lang/String;Ljava/lang/String;[Ljava/lang/Object;)Ljava/lang/Object;",false);
+                        }
+
+                        @Override
+                        public void visitCode(){
+                            if(invocation.invoke){
+                                super.visitCode();
+                            }else{
+                                mv.visitInsn(Opcodes.ICONST_2);
+                                mv.visitLdcInsn(name);
+                                mv.visitLdcInsn(desc);
+                                visitParams(mv,method);
+                                mv.visitMethodInsn(Opcodes.INVOKESTATIC,"bang/Utils","invokeMethod","(ILjava/lang/String;Ljava/lang/String;[Ljava/lang/Object;)Ljava/lang/Object;",false);
+                                if(desc.endsWith(")V")){
+                                    mv.visitInsn(Opcodes.RETURN);
+                                }else{
+                                    String type = desc.split("\\)")[1];
+                                    if(type.endsWith(";")){
+                                        type = type.substring(0,type.length() - 1);
+                                    }
+                                    if(!type.startsWith("L")){
+                                        switch (type){
+                                            case "B":
+                                                mv.visitTypeInsn(Opcodes.CHECKCAST, "java/lang/Byte");
+                                                mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL,"java/lang/Byte","byteValue","()B",false);
+                                                mv.visitInsn(Opcodes.IRETURN);
+                                                break;
+                                            case "C":
+                                                mv.visitTypeInsn(Opcodes.CHECKCAST, "java/lang/Character");
+                                                mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL,"java/lang/Character","charValue","()C",false);
+                                                mv.visitInsn(Opcodes.IRETURN);
+                                                break;
+                                            case "D":
+                                                mv.visitTypeInsn(Opcodes.CHECKCAST, "java/lang/Double");
+                                                mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL,"java/lang/Double","doubleValue","()D",false);
+                                                mv.visitInsn(Opcodes.DRETURN);
+                                                break;
+                                            case "F":
+                                                mv.visitTypeInsn(Opcodes.CHECKCAST, "java/lang/Float");
+                                                mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL,"java/lang/Float","floatValue","()F",false);
+                                                mv.visitInsn(Opcodes.FRETURN);
+                                                break;
+                                            case "I":
+                                                mv.visitTypeInsn(Opcodes.CHECKCAST, "java/lang/Integer");
+                                                mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL,"java/lang/Integer","intValue","()I",false);
+                                                mv.visitInsn(Opcodes.IRETURN);
+                                                break;
+                                            case "J":
+                                                mv.visitTypeInsn(Opcodes.CHECKCAST, "java/lang/Long");
+                                                mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL,"java/lang/Long","longValue","()J",false);
+                                                mv.visitInsn(Opcodes.LRETURN);
+                                                break;
+                                            case "S":
+                                                mv.visitTypeInsn(Opcodes.CHECKCAST, "java/lang/Short");
+                                                mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL,"java/lang/Short","shortValue","()S",false);
+                                                mv.visitInsn(Opcodes.IRETURN);
+                                                break;
+                                            case "Z":
+                                                mv.visitTypeInsn(Opcodes.CHECKCAST, "java/lang/Boolean");
+                                                mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL,"java/lang/Boolean","booleanValue","()Z",false);
+                                                mv.visitInsn(Opcodes.IRETURN);
+                                                break;
+                                        }
+                                    }else {
+                                        mv.visitTypeInsn(Opcodes.CHECKCAST, type.substring(1));
+                                        mv.visitInsn(Opcodes.ARETURN);
+                                    }
+                                }
+                                mv.visitEnd();
+                            }
                         }
                     };
                 }
-                return mv;
+                return methodVisitor;
             }
         };
         cr.accept(cv, ClassReader.EXPAND_FRAMES);
-
+        Instrumentation instrumentation = Agent.getInstrument();
+        if(instrumentation != null && instrumentation.isRedefineClassesSupported()){
+            instrumentation.redefineClasses(new ClassDefinition(cl,cw.toByteArray()));
+        }
     }
 
-    //未实现
-    public static void invokeMethod(int i,String name,String desc,Object[] args) throws Throwable {
+    //未测试
+    public static Object invokeMethod(int i,String name,String desc,Object[] args) throws Throwable {
         for (Method method : handlers.keySet()){
             if(name.equals(method.getName()) && desc.equals(getMethodDescriptor(method))){
                 InvocationHandler2 invocationHandler = handlers.get(method);
@@ -272,14 +369,13 @@ public class Utils {
                         invocationHandler.before(args);
                         break;
                     case 1:
-                        invocationHandler.after(args);
-                        break;
+                        return invocationHandler.after(args);
                     case 2:
-                        invocationHandler.invoke(null,method,args);
-                        break;
+                        return invocationHandler.invoke(null,method,args);
                 }
             }
         }
+        return null;
     }
 
     public static void visitParams(MethodVisitor mv,Method method){

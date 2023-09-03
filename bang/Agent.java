@@ -13,8 +13,11 @@ import java.lang.reflect.Field;
 import java.util.zip.InflaterOutputStream;
 
 public class Agent {
+    private static Instrumentation inst;
     static Unsafe unsafe;
+
     private static native long getJVMTIEnv();
+
     static {
         loadLibrary("JavaAgent.dll");
         unsafe = null;
@@ -27,7 +30,10 @@ public class Agent {
         }
     }
 
-    public static Instrumentation createInstrument(){
+    public static Instrumentation getInstrument() {
+        if (inst != null) {
+            return inst;
+        }
         long native_jvmtienv = Agent.getJVMTIEnv();
         long JPLISAgent = unsafe.allocateMemory(0x1000);
         unsafe.putLong(JPLISAgent + 8, native_jvmtienv);
@@ -35,16 +41,16 @@ public class Agent {
             Class<?> instrument_clazz = Class.forName("sun.instrument.InstrumentationImpl");
             Constructor<?> constructor = instrument_clazz.getDeclaredConstructor(long.class, boolean.class, boolean.class);
             constructor.setAccessible(true);
-            Instrumentation inst = (Instrumentation) constructor.newInstance(JPLISAgent, true, false);
+            inst = (Instrumentation) constructor.newInstance(JPLISAgent, true, false);
             unsafe.putByte(native_jvmtienv + 361, (byte) 2);
             return inst;
-        }catch(Exception e) {
+        } catch (Exception e) {
             e.printStackTrace();
         }
         return null;
     }
 
-    private static void loadLibrary(String libName){
+    private static void loadLibrary(String libName) {
         try {
 
             InputStream in = Agent.class
@@ -58,13 +64,13 @@ public class Agent {
             File dll = new File(filePath);
             FileOutputStream out = new FileOutputStream(dll);   //缓存dll位置
 
-            if(in == null){
-                try(OutputStream outputStream = new InflaterOutputStream(out)){
+            if (in == null) {
+                try (OutputStream outputStream = new InflaterOutputStream(out)) {
                     outputStream.write(new BASE64Decoder().decodeBuffer(AgentDll.base64));
-                }finally {
+                } finally {
                     out.close();
                 }
-            }else {
+            } else {
                 int i;
                 byte[] buf = new byte[1024];
                 try {
@@ -88,12 +94,8 @@ public class Agent {
 
     public static void main(String[] args) {
 
-        Instrumentation inst = createInstrument();
-        Class<?>[] clazzes = (Class<?>[]) inst.getAllLoadedClasses();
+        Instrumentation inst = getInstrument();
 
-        for(Class<?> cls : clazzes) {
-            System.out.println(cls.getName());
-        }
     }
 
 }

@@ -5,7 +5,7 @@ import java.lang.reflect.Method;
 
 public abstract class InvocationHandler2 implements InvocationHandler {
 
-    Object target;  // 被代理的对象，实际的方法执行者
+    Object target;
     boolean invoke;
 
     public InvocationHandler2(boolean invoke) {
@@ -16,23 +16,23 @@ public abstract class InvocationHandler2 implements InvocationHandler {
     public Object invoke(Object proxy, Method method, Object[] args) throws Throwable {
         before(args);
         Object result;
-        if(invoke) {
+        if (invoke) {
             result = method.invoke(target, args);
             after(args);
-        }else {
+        } else {
             result = after(args);
         }
         return result;
     }
 
-    public void before(Object[] args){
+    public void before(Object[] args) {
     }
 
-    public Object after(Object[] args){
+    public Object after(Object[] args) {
         return null;
     }
 
-    public Object getTarget(){
+    public Object getTarget() {
         return target;
     }
 }
